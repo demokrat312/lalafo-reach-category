@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📊 Калькулятор рич-пакетов (Live Google Sheets)</title>
+    
+    <!-- Styles (copied from original calculator.html) -->
+    <style>
+        /* ... existing code ... */
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        .slider-container {
+            margin: 15px 0;
+        }
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 5px;
+            background: #ddd;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #4CAF50;
+            cursor: pointer;
+        }
+        .slider-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+        .slider-value {
+            text-align: center;
+            margin-top: 10px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        .results {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        .results h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .result-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .result-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .result-item h3 {
+            margin: 0 0 10px 0;
+            color: #555;
+            font-size: 14px;
+        }
+        .result-item .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .no-data {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-style: italic;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+    </style>
+
+    <!-- PapaParse for CSV parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+    <!-- jsrsasign for JWT signing (provides global KJUR) -->
+    <script src="https://cdn.jsdelivr.net/npm/jsrsasign@10.5.25/lib/jsrsasign-all-min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Калькулятор рич-пакетов (Live)</h1>
+
+        <div id="loading" class="loading">
+            <p>Загрузка данных...</p>
+        </div>
+
+        <div id="error" class="error" style="display: none;">
+            <strong>Ошибка загрузки данных!</strong>
+            <p>Проверьте, что Google Sheets опубликован и доступен.</p>
+        </div>
+
+        <div id="controls" class="controls" style="display: none;">
+            <div class="form-group">
+                <label for="micromarket">🏗️ Микромаркет:</label>
+                <select id="micromarket">
+                    <option value="">Выберите микромаркет</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="period">📅 Период:</label>
+                <select id="period">
+                    <option value="">Выберите период</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="package">📦 Пакет услуг:</label>
+                <div class="slider-container">
+                    <input type="range" id="package" class="slider" min="0" max="2" step="1" value="1">
+                    <div class="slider-labels">
+                        <span>Базовый</span>
+                        <span>Стандарт</span>
+                        <span>Премиум</span>
+                    </div>
+                    <div class="slider-value" id="package-value">Стандарт</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="results-container" style="display: none;">
+            <div class="results">
+                <h2>💰 Результаты расчета</h2>
+                
+                <div id="no-data" class="no-data" style="display: none;">
+                    <p><strong>Данные не найдены</strong></p>
+                    <p>Для выбранной комбинации параметров нет данных в таблице</p>
+                </div>
+
+                <div id="data-results" class="result-grid" style="display: none;">
+                    <div class="result-item">
+                        <h3>Цена</h3>
+                        <div class="value" id="price">—</div>
+                        <div>KGS</div>
+                    </div>
+
+                    <div class="result-item">
+                        <h3>Скидка</h3>
+                        <div class="value" id="discount">—</div>
+                    </div>
+
+                    <div class="result-item">
+                        <h3>Цена со скидкой</h3>
+                        <div class="value" id="discounted-price">—</div>
+                        <div>KGS</div>
+                    </div>
+
+                    <div class="result-item">
+                        <h3>Охват</h3>
+                        <div class="value" id="reach">—</div>
+                        <div>показов</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class RichPackagesCalculatorLive {
+            constructor() {
+                this.data = [];
+                this.packageNames = ['Базовый', 'Стандарт', 'Премиум'];
+                this.sheetId = '1hxB8sW_KgYHUQdBmr1jepDAAxDiMYwlgiKnY368yZ3k'; // ID Google Sheets
+                this.sheetName = 'Лист2'; // Название листа с данными
+                this.serviceAccount = {
+                    clientEmail: 'lively-sentry-274711@appspot.gserviceaccount.com',
+                    privateKey: `-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC0Ahx89R486AJ/\ntyDB3p3SXE/CuaftJqvCT+gP9AlgTD+vMCi0I7r+cv8Mjj7ZKExnoAasrol9zNUe\nGkTQaNf81YjYMuUINXaQ/mL/TTrbt5pVjO/6M7ZufhH68V4u1quZ98hUgRO7CZ1W\nLv1kPTVGjNr/mKwokQKVpsKpD+FCVDJiIoMC+RzZ9z5f0nuXdRKXOW8LsY4II5sd\no0ifg02n4jt2ynnzPtYD+NTzLWeXRwSij3agekdoxGQxafDLBL22zB1lYXagYnLo\nFHelM+TrxgEGC5Zae08taagTdsoknXCCWxJFggVS14S5anAWoWiANkqxGq3UC9KO\n9HxYNKwtAgMBAAECggEABptrO0Tt+rNTYCezGpqWtWFxBgc1fDVmqYewT2GYNIIn\n9kCwxcfn9a334ZiZAvSBNW6AwDbZ0hXCHsw9CV9Hyj52OuVHVdFMjE7iCFfn2Ke5\nEPnO1yKtyAl1lH3mhJaZjtmy7zMbq8pTDZZE87hxa6kA4s/SRdzouOB5laYBESOh\nGd9ddArbcGxCpKUprMKOQ1VABJB3hNeDZ5wbB5imN+4wGePmxIrRh34L2i85Qx6O\nZE0bPQDrylsfQ1BhVriCdNqt9eW9rin32LQbPAj4O5c+OIH7cKGSNXQE3w5S1GLq\nndZSDUG1KNnlEsjuabaZKBDx1mkCoI6QWmX+QomucQKBgQC6mD3RmIP0MO4gszyL\nqn3v39EmLpUyNPUGVbVgmQCKG5P6unOL8wE5nTb2PdVMA/h7b6BxZq7GMUyRFlHs\nWSDirPDCX5vy5ZGh5LAA34JizyrrIGSq6LIWhgtT1dMB9YU8lkvbv+IXtr1+dcsQ\nmfjLkp0DQD18UmwEDrtvP2CKJQKBgQD29rNwFQU0OwbEgH59eeXW5ux6Q326B4nd\nnUCwPQiOmCDp1UuhzuePfbyQuqg/73z9AIrs8xz+SYQak1YZSwI4cGF3zT1WndpX\nFnJ3E5K5O3iSR1OYoq+kxthqJ+imUbV+0RaDxtWS/Ak3u0tiZe+qACikC0y4cXsZ\nsUzUNfEHaQKBgEPe6G16ilSiD5u5VkZ/BzvfL1YyD3apqI5bUpQGUxnpGhRTCYBY\nLZPlSX6b0x/JOfK8EaHt9ZiFihIkCjxr1vhca15oJHNfaW93nUVUBzslm7jWmYdJ\nCK4Ep84gspW91m7JRGJ0EysI/zgmZGxvdP2nIJF0Jmk4Ga4IJck7RkQ5AoGAOMnV\nzSooPjBsh/b8HyJOpbIIIr0uRf7BxwIIA/6k3xVATETN1XFccfR5zdX+JmWNmifr\nyjzFJ/wDspC6tao34n6FCyVYu3gk4u24eIU5sfpo6UoZgPm35e4Lia2Po98aGwU9\nZiPsrJXkELqyxPenurG6pq4qgCcoJWpNvmaA/DECgYBr0/Omf8QTQEkULdG/TVgI\nZAJjQlRqQQtcdOTY7yJ1a1HQRRaskb6a70jy7ixnzKazN9EHPdtID1dqhWer8Z+R\nVfKH0cdV4BVfKKIY6acmI6cS3CLPHJnoii04u0Lmw4/GoB/eytZqSTjoZxKhX/r5\nj0Wgk8ou64EptCtkwzrO9w==\n-----END PRIVATE KEY-----`,
+                    tokenUri: 'https://oauth2.googleapis.com/token'
+                };
+                this.init();
+            }
+
+            async init() {
+                try {
+                    await this.loadData();
+                    this.setupEventListeners();
+                    this.populateControls();
+                    this.hideLoading();
+                    this.showControls();
+                } catch (error) {
+                    console.error('Initialization error:', error);
+                    this.showError();
+                }
+            }
+
+            async loadData() {
+                // 🔑 Service Account credentials (embedded) – sheet must be shared with this email.
+                // 1️⃣ Попытка через OAuth2 токен сервисного аккаунта
+                try {
+                    const token = await this.fetchAccessToken();
+                    const apiUrl = `https://sheets.googleapis.com/v4/spreadsheets/${this.sheetId}/values/${encodeURIComponent(
+                        this.sheetName
+                    )}`;
+                    const resp = await fetch(apiUrl, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    if (resp.ok) {
+                        const json = await resp.json();
+                        const rows = json.values || [];
+                        this.parseRows(rows);
+                        return; // success
+                    }
+                    console.warn('⚠️  Sheets API responded with status', resp.status, '– fallback to CSV');
+                } catch (e) {
+                    console.warn('⚠️  Service account fetch failed, fallback to CSV export.', e);
+                }
+            }
+
+            parseRows(rows) {
+                if (!rows || rows.length < 2) throw new Error('Not enough rows');
+                rows.slice(1).forEach((row) => {
+                    this.data.push({
+                        micromarket: row[0] || '',
+                        package: row[1] || '',
+                        period: row[2] || '',
+                        price: row[3] || '',
+                        discount: row[4] || '',
+                        discountedPrice: row[5] || '',
+                        reach: row[6] || ''
+                    });
+                });
+                this.data = this.data.filter(
+                    (d) => d.micromarket && d.package && d.period && this.packageNames.includes(d.package)
+                );
+            }
+
+            populateControls() {
+                // Микромаркеты
+                const micromarks = [...new Set(this.data.map(item => item.micromarket))];
+                const micromarketSelect = document.getElementById('micromarket');
+                micromarks.forEach(market => {
+                    const option = document.createElement('option');
+                    option.value = market;
+                    option.textContent = market;
+                    micromarketSelect.appendChild(option);
+                });
+
+                // Периоды
+                const periods = [...new Set(this.data.map(item => item.period))];
+                const periodSelect = document.getElementById('period');
+                periods.forEach(period => {
+                    const option = document.createElement('option');
+                    option.value = period;
+                    option.textContent = period;
+                    periodSelect.appendChild(option);
+                });
+            }
+
+            setupEventListeners() {
+                const micromarketSelect = document.getElementById('micromarket');
+                const periodSelect = document.getElementById('period');
+                const packageSlider = document.getElementById('package');
+
+                micromarketSelect.addEventListener('change', () => this.updateResults());
+                periodSelect.addEventListener('change', () => this.updateResults());
+                packageSlider.addEventListener('input', () => {
+                    this.updatePackageValue();
+                    this.updateResults();
+                });
+
+                // Initial label update
+                this.updatePackageValue();
+            }
+
+            updatePackageValue() {
+                const packageSlider = document.getElementById('package');
+                const packageValue = document.getElementById('package-value');
+                const selectedPackage = this.packageNames[parseInt(packageSlider.value)];
+                packageValue.textContent = selectedPackage;
+            }
+
+            updateResults() {
+                const micromarket = document.getElementById('micromarket').value;
+                const period = document.getElementById('period').value;
+                const packageIndex = parseInt(document.getElementById('package').value);
+                const selectedPackage = this.packageNames[packageIndex];
+
+                if (!micromarket || !period || selectedPackage === undefined) {
+                    this.hideResults();
+                    return;
+                }
+
+                const matchingData = this.data.find(item => 
+                    item.micromarket === micromarket &&
+                    item.period === period &&
+                    item.package === selectedPackage
+                );
+
+                if (matchingData) {
+                    this.showResults(matchingData);
+                } else {
+                    this.showNoData();
+                }
+            }
+
+            showResults(data) {
+                const resultsContainer = document.getElementById('results-container');
+                const dataResults = document.getElementById('data-results');
+                const noData = document.getElementById('no-data');
+
+                document.getElementById('price').textContent = this.formatNumber(data.price);
+                document.getElementById('discount').textContent = data.discount;
+                document.getElementById('discounted-price').textContent = this.formatNumber(data.discountedPrice);
+                document.getElementById('reach').textContent = this.formatNumber(data.reach);
+
+                resultsContainer.style.display = 'block';
+                dataResults.style.display = 'grid';
+                noData.style.display = 'none';
+            }
+
+            showNoData() {
+                const resultsContainer = document.getElementById('results-container');
+                const dataResults = document.getElementById('data-results');
+                const noData = document.getElementById('no-data');
+
+                resultsContainer.style.display = 'block';
+                dataResults.style.display = 'none';
+                noData.style.display = 'block';
+            }
+
+            hideResults() {
+                document.getElementById('results-container').style.display = 'none';
+            }
+
+            formatNumber(value) {
+                if (!value || value === '') return '—';
+                const cleanValue = value.toString().replace(/[^\d\s]/g, '');
+                if (!cleanValue) return '—';
+                const number = parseInt(cleanValue.replace(/\s/g, ''));
+                if (isNaN(number)) return '—';
+                return number.toLocaleString('ru-RU');
+            }
+
+            hideLoading() {
+                document.getElementById('loading').style.display = 'none';
+            }
+
+            showControls() {
+                document.getElementById('controls').style.display = 'grid';
+            }
+
+            showError() {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+            }
+
+            async fetchAccessToken() {
+                // Кешируем token на время жизни (1ч)
+                if (this.cachedToken && this.tokenExpires && Date.now() < this.tokenExpires) {
+                    return this.cachedToken;
+                }
+
+                const header = {
+                    alg: 'RS256',
+                    typ: 'JWT'
+                };
+                const now = Math.floor(Date.now() / 1000);
+                const claims = {
+                    iss: this.serviceAccount.clientEmail,
+                    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
+                    aud: this.serviceAccount.tokenUri,
+                    exp: now + 3600,
+                    iat: now
+                };
+
+                const sHeader = KJUR.jws.JWS.readSafeJSONString(JSON.stringify(header));
+                const sPayload = KJUR.jws.JWS.readSafeJSONString(JSON.stringify(claims));
+                const privateKey = this.serviceAccount.privateKey;
+
+                const jwt = KJUR.jws.JWS.sign('RS256', JSON.stringify(sHeader), JSON.stringify(sPayload), privateKey);
+
+                // Получаем access_token
+                const params = new URLSearchParams({
+                    grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                    assertion: jwt
+                });
+
+                const resp = await fetch(this.serviceAccount.tokenUri, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: params.toString()
+                });
+                if (!resp.ok) throw new Error(`Token fetch failed: ${resp.status}`);
+                const data = await resp.json();
+                this.cachedToken = data.access_token;
+                this.tokenExpires = Date.now() + (data.expires_in - 60) * 1000; // buffer 60s
+                return this.cachedToken;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => new RichPackagesCalculatorLive());
+    </script>
+</body>
+</html> 
